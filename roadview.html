@@ -1,0 +1,235 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>네이버 로드뷰</title>
+    <style>
+        body, html {
+            margin: 0;
+            padding: 0;
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+            background-color: black;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+        }
+        
+        #panorama {
+            width: 100%;
+            height: 100%;
+            background-color: black;
+        }
+        
+        .error-message {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            background-color: rgba(0, 0, 0, 0.9);
+            color: white;
+            text-align: center;
+            padding: 20px;
+            box-sizing: border-box;
+            z-index: 1000;
+        }
+        
+        .loading {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            color: white;
+            font-size: 18px;
+            z-index: 999;
+        }
+        
+        .spinner {
+            border: 4px solid #f3f3f3;
+            border-top: 4px solid #3498db;
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            animation: spin 2s linear infinite;
+            margin: 0 auto 20px;
+        }
+        
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+    </style>
+</head>
+<body>
+    <div id="panorama"></div>
+    <div id="loading" class="loading">
+        <div class="spinner"></div>
+        <div>로드뷰 로딩 중...</div>
+    </div>
+    <div id="error" class="error-message" style="display: none;">
+        <h3>로드뷰를 불러올 수 없습니다</h3>
+        <p>해당 위치에 로드뷰가 없습니다.</p>
+        <button onclick="retryPanorama()" style="margin-top: 20px; padding: 10px 20px; background: #007bff; color: white; border: none; border-radius: 5px; cursor: pointer;">
+            다시 시도
+        </button>
+    </div>
+
+    <!-- 네이버 Maps API v3 + 파노라마 서브모듈 -->
+    <script type="text/javascript" src="https://oapi.map.naver.com/openapi/v3/maps.js?ncpKeyId=x6vhzkmhb4&submodules=panorama&callback=initNaverMaps"></script>
+    
+    <script>
+        // 전역 변수
+        let panorama = null;
+        let isInitialized = false;
+        let currentPosition = null;
+        
+        // URL에서 좌표 파라미터 받기 (예: ?lat=37.5665&lng=126.9780)
+        function getUrlParams() {
+            const urlParams = new URLSearchParams(window.location.search);
+            const lat = parseFloat(urlParams.get('lat')) || 37.5665; // 기본값: 서울시청
+            const lng = parseFloat(urlParams.get('lng')) || 126.9780;
+            return { lat, lng };
+        }
+        
+        // 로딩 표시/숨김
+        function showLoading() {
+            document.getElementById('loading').style.display = 'block';
+            document.getElementById('error').style.display = 'none';
+        }
+        
+        function hideLoading() {
+            document.getElementById('loading').style.display = 'none';
+        }
+        
+        function showError(message = '해당 위치에 로드뷰가 없습니다.') {
+            hideLoading();
+            document.getElementById('error').style.display = 'flex';
+            document.querySelector('#error p').textContent = message;
+        }
+        
+        // 네이버 Maps API 로드 완료 콜백
+        function initNaverMaps() {
+            console.log('✅ 네이버 Maps API 로드 완료');
+            console.log('🔍 naver 객체 존재:', typeof naver !== 'undefined');
+            console.log('🔍 naver.maps.Panorama 존재:', typeof naver.maps.Panorama !== 'undefined');
+            
+            if (typeof naver !== 'undefined' && naver.maps && naver.maps.Panorama) {
+                initPanorama();
+            } else {
+                showError('네이버 Maps API 로드 실패');
+            }
+        }
+        
+        // 파노라마 초기화
+        function initPanorama() {
+            if (isInitialized) return;
+            isInitialized = true;
+            
+            const { lat, lng } = getUrlParams();
+            currentPosition = { lat, lng };
+            
+            console.log('🌐 파노라마 초기화 시작:', lat, lng);
+            
+            try {
+                // 파노라마 생성
+                panorama = new naver.maps.Panorama('panorama', {
+                    position: new naver.maps.LatLng(lat, lng),
+                    pov: {
+                        pan: 0,    // 수평 각도
+                        tilt: 0,   // 수직 각도
+                        fov: 90    // 시야각
+                    },
+                    visible: true
+                });
+                
+                // 파노라마 이벤트 리스너
+                naver.maps.Event.addListener(panorama, 'pano_changed', function() {
+                    console.log('✅ 파노라마 로드 성공');
+                    hideLoading();
+                });
+                
+                naver.maps.Event.addListener(panorama, 'init', function() {
+                    console.log('✅ 파노라마 초기화 완료');
+                    hideLoading();
+                });
+                
+                naver.maps.Event.addListener(panorama, 'error', function(error) {
+                    console.error('❌ 파노라마 로드 실패:', error);
+                    showError('파노라마 로드 실패: ' + (error.message || '알 수 없는 오류'));
+                });
+                
+                naver.maps.Event.addListener(panorama, 'no_spot_found', function() {
+                    console.warn('⚠️ 해당 위치에 로드뷰 스팟이 없습니다');
+                    showError('해당 위치에 로드뷰가 없습니다');
+                });
+                
+                console.log('✅ 파노라마 객체 생성 완료');
+                
+            } catch (error) {
+                console.error('❌ 파노라마 생성 중 오류:', error);
+                showError('파노라마 생성 오류: ' + error.message);
+            }
+        }
+        
+        // 다시 시도 함수
+        function retryPanorama() {
+            if (currentPosition) {
+                isInitialized = false;
+                showLoading();
+                initPanorama();
+            }
+        }
+        
+        // 네이티브 앱에서 호출할 함수들
+        window.setPanoramaPosition = function(lat, lng) {
+            console.log('📍 파노라마 위치 변경:', lat, lng);
+            if (panorama) {
+                panorama.setPosition(new naver.maps.LatLng(lat, lng));
+            }
+        };
+        
+        window.setPanoramaPOV = function(pan, tilt, fov) {
+            console.log('👁️ 파노라마 시점 변경:', pan, tilt, fov);
+            if (panorama) {
+                panorama.setPov({ pan, tilt, fov });
+            }
+        };
+        
+        // 페이지 로드 시 초기화
+        document.addEventListener('DOMContentLoaded', function() {
+            console.log('📄 DOM 로드 완료');
+            showLoading();
+        });
+        
+        // 화면 회전 처리
+        window.addEventListener('orientationchange', function() {
+            console.log('📱 화면 회전 감지');
+            setTimeout(function() {
+                if (panorama) {
+                    panorama.refresh();
+                }
+            }, 100);
+        });
+        
+        // 페이지 가시성 변경 처리
+        document.addEventListener('visibilitychange', function() {
+            if (document.hidden) {
+                console.log('📱 페이지 숨김 - 파노라마 일시정지');
+                if (panorama) {
+                    panorama.setVisible(false);
+                }
+            } else {
+                console.log('📱 페이지 표시 - 파노라마 재개');
+                if (panorama) {
+                    panorama.setVisible(true);
+                }
+            }
+        });
+    </script>
+</body>
+</html>
